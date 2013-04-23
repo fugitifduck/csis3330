@@ -1,0 +1,278 @@
+package com.csis3330.parasite;
+
+import java.io.IOException;
+
+import android.support.v4.app.FragmentActivity;
+import android.annotation.SuppressLint;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
+import android.provider.Settings;
+import android.view.View;
+import android.widget.TextView;
+import android.widget.Toast;
+
+
+public class LocUpdate extends FragmentActivity {
+
+	private TextView mLatLng;
+    private LocationManager mLocationManager;
+    private Handler mHandler;
+    private boolean mGpsEnable;
+    
+    // UI handler codes.
+    private static final int UPDATE_LATLNG = 2;
+
+    private static final int TEN_SECONDS = 10000;
+    private static final int TEN_METERS = 10;
+    private static final int TWO_MINUTES = 1000 * 60 * 2;
+
+    /**
+     * This sample demonstrates how to incorporate location based services in your app and
+     * process location updates.  The app also shows how to convert lat/long coordinates to
+     * human-readable addresses.
+     */
+    @SuppressLint({ "NewApi", "HandlerLeak" })
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_map);
+
+
+        mLatLng = (TextView) findViewById(R.id.latlng);
+
+
+        // Handler for updating text fields on the UI like the lat/long and address.
+        mHandler = new Handler() {
+            public void handleMessage(Message msg) {
+                switch (msg.what) {
+                    case UPDATE_LATLNG:
+                        mLatLng.setText((String) msg.obj);
+                        break;
+                }
+            }
+        };
+        // Get a reference to the LocationManager object.
+        
+        mLocationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+    }
+
+
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        setup();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+
+        // Check if the GPS setting is currently enabled on the device.
+        // This verification should be done during onStart() because the system calls this method
+        // when the user returns to the activity, which ensures the desired location provider is
+        // enabled each time the activity resumes from the stopped state.
+        LocationManager locationManager =
+                (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        mGpsEnable = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+
+        if (!mGpsEnable) {
+            // Build an alert dialog here that requests that the user enable
+            // the location services, then when the user clicks the "OK" button,
+            // call enableLocationSettings()
+			AlertDialog.Builder builder = new AlertDialog.Builder(this);
+			builder.setMessage("gps need")
+               .setPositiveButton("ok", new DialogInterface.OnClickListener() {
+                   public void onClick(DialogInterface dialog, int id) {
+                       enableLocationSettings();
+                   }
+               })
+               .setNegativeButton("cancel", new DialogInterface.OnClickListener() {
+                   public void onClick(DialogInterface dialog, int id) {
+                   }
+               });
+			
+			Dialog dialog = builder.create();
+			//DialogFragment dialog = new DialogGeneric();
+			dialog.show();
+        }
+    }
+
+    // Method to launch Settings
+    private void enableLocationSettings() {
+        Intent settingsIntent = new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS);
+        startActivity(settingsIntent);
+    }
+
+    // Stop receiving location updates whenever the Activity becomes invisible.
+    @Override
+    protected void onStop() {
+        super.onStop();
+        mLocationManager.removeUpdates(listener);
+    }
+
+    // Set up fine and/or coarse location providers depending on whether the fine provider or
+    // both providers button is pressed.
+    private void setup() {
+        Location gpsLocation = null;
+        Location networkLocation = null;
+        
+        mLocationManager.removeUpdates(listener);
+        mLatLng.setText("unknow");
+        // Get fine location updates only.
+        if (mGpsEnable) {
+
+            // Request updates from just the fine (gps) provider.
+            gpsLocation = requestUpdatesFromProvider(
+                    LocationManager.GPS_PROVIDER, "not supported");
+            // Update the UI immediately if a location is obtained.
+            if (gpsLocation != null) updateUILocation(gpsLocation);
+        } else {
+            // Get coarse and fine location updates.
+
+            // Request updates from both fine (gps) and coarse (network) providers.
+            gpsLocation = requestUpdatesFromProvider(
+                    LocationManager.GPS_PROVIDER, "not supported");
+            networkLocation = requestUpdatesFromProvider(
+                    LocationManager.NETWORK_PROVIDER, "not supported");
+
+            // If both providers return last known locations, compare the two and use the better
+            // one to update the UI.  If only one provider returns a location, use it.
+            if (gpsLocation != null && networkLocation != null) {
+                updateUILocation(getBetterLocation(gpsLocation, networkLocation));
+            } else if (gpsLocation != null) {
+                updateUILocation(gpsLocation);
+            } else if (networkLocation != null) {
+                updateUILocation(networkLocation);
+            }
+        }
+    }
+
+    /**
+     * Method to register location updates with a desired location provider.  If the requested
+     * provider is not available on the device, the app displays a Toast with a message referenced
+     * by a resource id.
+     *
+     * @param provider Name of the requested provider.
+     * @param errorResId Resource id for the string message to be displayed if the provider does
+     *                   not exist on the device.
+     * @return A previously returned {@link android.location.Location} from the requested provider,
+     *         if exists.
+     */
+    private Location requestUpdatesFromProvider(final String provider, final String errorResId) {
+        Location location = null;
+        if (mLocationManager.isProviderEnabled(provider)) {
+            mLocationManager.requestLocationUpdates(provider, TEN_SECONDS, TEN_METERS, listener);
+            location = mLocationManager.getLastKnownLocation(provider);
+        } else {
+            //Toast.makeText(this, errorResId, Toast.LENGTH_LONG).show();
+        }
+        return location;
+    }
+
+    private void updateUILocation(Location location){
+        new Connector().execute(location.getLongitude(), location.getLatitude());
+//			con.pushLocalization(location.getLongitude(), location.getLatitude());
+        Message.obtain(mHandler,
+                UPDATE_LATLNG,
+                location.getLatitude() + ", " + location.getLongitude()).sendToTarget();
+
+        
+    }
+    
+    public void clic(View view) {
+    	setup();
+    }
+
+    private final LocationListener listener = new LocationListener() {
+
+        @Override
+        public void onLocationChanged(Location location) {
+            // A new location update is received.  Do something useful with it.  Update the UI with
+            // the location update.
+            updateUILocation(location);
+        }
+
+        @Override
+        public void onProviderDisabled(String provider) {
+        }
+
+        @Override
+        public void onProviderEnabled(String provider) {
+        }
+
+        @Override
+        public void onStatusChanged(String provider, int status, Bundle extras) {
+        }
+    };
+
+    /** Determines whether one Location reading is better than the current Location fix.
+      * Code taken from
+      * http://developer.android.com/guide/topics/location/obtaining-user-location.html
+      *
+      * @param newLocation  The new Location that you want to evaluate
+      * @param currentBestLocation  The current Location fix, to which you want to compare the new
+      *        one
+      * @return The better Location object based on recency and accuracy.
+      */
+    protected Location getBetterLocation(Location newLocation, Location currentBestLocation) {
+        if (currentBestLocation == null) {
+            // A new location is always better than no location
+            return newLocation;
+        }
+
+        // Check whether the new location fix is newer or older
+        long timeDelta = newLocation.getTime() - currentBestLocation.getTime();
+        boolean isSignificantlyNewer = timeDelta > TWO_MINUTES;
+        boolean isSignificantlyOlder = timeDelta < -TWO_MINUTES;
+        boolean isNewer = timeDelta > 0;
+
+        // If it's been more than two minutes since the current location, use the new location
+        // because the user has likely moved.
+        if (isSignificantlyNewer) {
+            return newLocation;
+        // If the new location is more than two minutes older, it must be worse
+        } else if (isSignificantlyOlder) {
+            return currentBestLocation;
+        }
+
+        // Check whether the new location fix is more or less accurate
+        int accuracyDelta = (int) (newLocation.getAccuracy() - currentBestLocation.getAccuracy());
+        boolean isLessAccurate = accuracyDelta > 0;
+        boolean isMoreAccurate = accuracyDelta < 0;
+        boolean isSignificantlyLessAccurate = accuracyDelta > 200;
+
+        // Check if the old and new location are from the same provider
+        boolean isFromSameProvider = isSameProvider(newLocation.getProvider(),
+                currentBestLocation.getProvider());
+
+        // Determine location quality using a combination of timeliness and accuracy
+        if (isMoreAccurate) {
+            return newLocation;
+        } else if (isNewer && !isLessAccurate) {
+            return newLocation;
+        } else if (isNewer && !isSignificantlyLessAccurate && isFromSameProvider) {
+            return newLocation;
+        }
+        return currentBestLocation;
+    }
+
+    /** Checks whether two providers are the same */
+    private boolean isSameProvider(String provider1, String provider2) {
+        if (provider1 == null) {
+          return provider2 == null;
+        }
+        return provider1.equals(provider2);
+    }
+
+
+}
